@@ -13,5 +13,5 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo test --workspace --locked
       - run: cargo build --workspace --locked --release --target wasm32v1-none
-      - run: bash -n deploy.sh
+      - run: bash -n deploy.sh scripts/build.sh
       - run: python3 -m unittest discover -s tests -v

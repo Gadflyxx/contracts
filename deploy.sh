@@ -19,7 +19,7 @@ case "$component" in
   nft) : "${OWNER:?}" "${MAX_SUPPLY:?}" "${METADATA:?Set METADATA JSON}";;
 esac
 # Stellar CLI builds optimized WASM by default. Legacy CLI requires explicit optimize.
-"$CLI" contract build
+STELLAR_CLI="$CLI" ./scripts/build.sh
 if [[ "$CLI" == soroban ]]; then
   for wasm in target/wasm32v1-none/release/remitpulse_*.wasm; do
     [[ "$wasm" == *.optimized.wasm ]] && continue

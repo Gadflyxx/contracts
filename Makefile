@@ -5,7 +5,7 @@ test:
 	cargo test --workspace --locked
 	python3 -m unittest discover -s tests -v
 build:
-	$(STELLAR_CLI) contract build
+	STELLAR_CLI="$(STELLAR_CLI)" ./scripts/build.sh
 optimize: build
 # Modern Stellar CLI optimizes as part of build. deploy.sh also supports legacy soroban.
 deploy-testnet:
