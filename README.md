@@ -74,6 +74,12 @@ revocation, token scope, real signed custom-account authorization, SAC transfers
 replay protection, and subsidy authorization. Deployment script tests stub the CLI to verify constructor arguments, network selection,
 preflight validation and build failure handling. No RPC or funded account is needed.
 
+Run `make verify` before release. It runs the native suite, deployment checks,
+format checks, builds the release artifacts, and runs the account suite again
+against `remitpulse_account.wasm` inside the Soroban VM. CI uploads the exact
+WASM files with a `SHA256SUMS` manifest, so release candidates can be verified
+against the reviewed build output.
+
 ## Passkeys and sessions
 
 Construct an account with `Config`: unique uncompressed SEC1 P-256 public keys
@@ -95,12 +101,17 @@ passkeys commonly report zero). JSON strings must use literal characters rather
 than escaped representations for the compared fields.
 
 1. Obtain a full passkey quorum authorizing `account.add_session(public_key, session)`.
-2. Scope the session to a verified token contract address, positive per-transfer
-   amount, total remaining budget and absolute ledger timestamp expiry (seconds).
+2. Scope the session to a verified token contract address, optionally one fixed
+   recipient, a positive per-transfer amount, total remaining budget and an
+   absolute ledger timestamp expiry (seconds). Bind the recipient for a typical
+   remittance payout; leaving it empty permits any recipient within the limits.
 3. Sign subsequent Soroban authorization payloads with the session's Ed25519 key.
    Every authorized context must be that token's `transfer(account, recipient, amount)`.
    Transfers must be positive, individually under the cap and cumulatively under budget.
 4. Authorize `revoke_session` with the full passkey quorum to terminate access.
+   The same quorum can call `set_sessions_paused(true)` for an immediate
+   account-wide session-key freeze, without preventing a passkey transfer or
+   revocation. Resume with `set_sessions_paused(false)` after investigation.
 
 Sessions cannot authorize approvals, arbitrary calls, deployments, new sessions
 or revocations. A session permits any recipient within its limits; protect the
@@ -143,6 +154,16 @@ export ACCOUNT_CONFIG='{"keys":["<SEC1_PUBLIC_KEY_HEX>"],"threshold":1,"rp_id_ha
 # For a funded mainnet identity with the same environment inputs configured:
 ./deploy.sh mainnet core
 ```
+
+`deploy.sh` validates `ACCOUNT_CONFIG` before compilation or submission: exact
+fields, threshold, duplicate keys, valid uncompressed on-curve P-256 keys,
+32-byte RP ID hash, and a canonical HTTPS origin. It also validates the airdrop
+root and NFT constructor input. It cannot derive the RP ID from its hash, so the
+enrollment service must independently ensure the RP ID is valid for the origin.
+Use the `config`, `session`, `sessions_paused`, `admin`, and `is_reimbursed`
+read methods for operational monitoring. Account events use `session` topics for
+set, revoked, paused, and spent transitions; subsidy events use `subsidy` plus
+the reimbursement ID.
 
 `core` deploys router, verifier, account and subsidy vault. Account initialization
 and admin assignment happen atomically through constructors. A separate verifier

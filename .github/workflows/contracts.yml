@@ -15,3 +15,13 @@ jobs:
       - run: cargo build --workspace --locked --release --target wasm32v1-none
       - run: bash -n deploy.sh scripts/build.sh
       - run: python3 -m unittest discover -s tests -v
+      - run: cargo test -p remitpulse-account --locked --features wasm-tests
+      - name: Record WASM checksums
+        run: sha256sum target/wasm32v1-none/release/remitpulse_*.wasm > target/wasm32v1-none/release/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remitpulse-contracts-${{ github.sha }}
+          path: |
+            target/wasm32v1-none/release/remitpulse_*.wasm
+            target/wasm32v1-none/release/SHA256SUMS
+          if-no-files-found: error
