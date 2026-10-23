@@ -25,14 +25,34 @@ See [UPSTREAM.md](UPSTREAM.md) for the exact source revision and attribution.
 
 Install Rust using rustup, then a Stellar CLI with Protocol 22 support (the
 successor to `soroban-cli`). The toolchain file installs the required Rust target.
+Deployment-script tests require Python 3.11 or later.
 
 ```sh
 cargo test --workspace --locked
 python3 -m unittest discover -s tests -v
 cargo fmt --all -- --check
 cargo build --workspace --locked --release --target wasm32v1-none
-stellar contract build
+make build
 ```
+
+`make build` and `deploy.sh` use `scripts/build.sh`, which explicitly selects the
+Rust version from `rust-toolchain.toml` for the CLI and its Cargo subprocesses.
+This also handles shells or CI jobs with `RUSTUP_TOOLCHAIN=stable`, which would
+otherwise override the repository's pin. The Stellar CLI itself may be installed
+using a newer compiler; contract compilation still uses the pinned toolchain.
+
+The initial compiler incompatibilities are resolved by Rust **1.88.0**:
+
+- Rust 1.99.1 rejects `ethnum` 1.5.2's integer-error transmute because the standard
+  library's `TryFromIntError` representation changed.
+- Rust 1.85.0 cannot compile OpenZeppelin v0.3.0's `is_multiple_of` call, which was
+  not yet stable in that toolchain.
+- Rust 1.88.0 supports the locked dependencies and passes the native test suite
+  and release WASM builds. Keep the toolchain pin and `Cargo.lock` together.
+
+For a manual build outside the wrapper, clear an inherited override with
+`env -u RUSTUP_TOOLCHAIN cargo build --workspace --locked --release --target wasm32v1-none`.
+Run builds from this repository so rustup finds its toolchain file.
 
 `stellar contract build` builds and optimizes WASM by default with current CLI
 versions. Artifacts are `target/wasm32v1-none/release/remitpulse_*.wasm`.
