@@ -1,0 +1,7 @@
+/target/
+**/test_snapshots/
+/deployments/
+.env
+.stellar/
+.soroban/
+__pycache__/
