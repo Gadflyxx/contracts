@@ -1,9 +1,13 @@
 [package]
 name = "remitpulse-account"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 publish = false
 license = "MIT"
+
+[features]
+# Build release WASM first; reruns the account suite against the Soroban VM.
+wasm-tests = []
 
 [lib]
 crate-type = ["cdylib", "rlib"]

@@ -7,6 +7,24 @@ use soroban_sdk::{
     token, vec, IntoVal,
 };
 
+fn register_account(e: &Env, config: Config) -> Address {
+    #[cfg(feature = "wasm-tests")]
+    {
+        e.register(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../target/wasm32v1-none/release/remitpulse_account.wasm"
+            ))
+            .as_slice(),
+            (config,),
+        )
+    }
+    #[cfg(not(feature = "wasm-tests"))]
+    {
+        e.register(Account, (config,))
+    }
+}
+
 fn setup() -> (Env, Address, Address, SigningKey) {
     let e = Env::default();
     let config = Config {
@@ -15,7 +33,7 @@ fn setup() -> (Env, Address, Address, SigningKey) {
         rp_id_hash: BytesN::from_array(&e, &[0; 32]),
         origin: Bytes::from_slice(&e, b"https://remitpulse.example"),
     };
-    let account = e.register(Account, (config,));
+    let account = register_account(&e, config);
     let token = e
         .register_stellar_asset_contract_v2(Address::generate(&e))
         .address();
@@ -26,6 +44,7 @@ fn setup() -> (Env, Address, Address, SigningKey) {
         &public,
         &Session {
             token: token.clone(),
+            recipient: None,
             per_transfer: 10,
             remaining: 15,
             expires_at: 100,
@@ -180,14 +199,14 @@ fn passkey_quorum_rejects_missing_and_duplicate_signers() {
         .sha256(&Bytes::from_slice(&e, b"remitpulse.example"))
         .into();
     let origin = Bytes::from_slice(&e, b"https://remitpulse.example");
-    let account = e.register(
-        Account,
-        (Config {
+    let account = register_account(
+        &e,
+        Config {
             keys,
             threshold: 2,
             rp_id_hash: rp.clone(),
             origin,
-        },),
+        },
     );
     let payload = BytesN::from_array(&e, &[0; 32]);
     let mut assertions = Vec::new(&e);
@@ -234,6 +253,7 @@ fn passkey_quorum_rejects_missing_and_duplicate_signers() {
             &BytesN::from_array(&e, &[7; 32]),
             &Session {
                 token: Address::generate(&e),
+                recipient: None,
                 per_transfer: 1,
                 remaining: 2,
                 expires_at: 100
@@ -274,4 +294,84 @@ fn sessions_reject_admin_calls_and_aggregate_overspending() {
         args: vec![&e],
     });
     assert_eq!(check(vec![&e, admin]), Err(Ok(Error::Scope)));
+}
+
+#[test]
+fn recipient_binding_and_emergency_pause() {
+    let (e, account, asset, signing) = setup();
+    let public = BytesN::from_array(&e, &signing.verifying_key().to_bytes());
+    let beneficiary = Address::generate(&e);
+    let client = AccountClient::new(&e, &account);
+    let mut session = client.session(&public).unwrap();
+    session.recipient = Some(beneficiary.clone());
+    e.mock_all_auths();
+    client.add_session(&public, &session);
+    e.set_auths(&[]);
+    // The existing helper chooses a different recipient for every authorization.
+    assert_eq!(check(&e, &account, &asset, &signing, 1), Err(Error::Scope));
+    assert_eq!(client.session(&public).unwrap().remaining, 15);
+    let payload = BytesN::from_array(&e, &[9; 32]);
+    let signature = Signature::Session(
+        public.clone(),
+        BytesN::from_array(&e, &signing.sign(&payload.to_array()).to_bytes()),
+    );
+    let contexts = vec![
+        &e,
+        Context::Contract(ContractContext {
+            contract: asset,
+            fn_name: Symbol::new(&e, "transfer"),
+            args: (account.clone(), beneficiary, 5i128).into_val(&e),
+        }),
+    ];
+    let authorize = || {
+        e.try_invoke_contract_check_auth::<Error>(
+            &account,
+            &payload,
+            signature.clone().into_val(&e),
+            &contexts,
+        )
+    };
+    assert_eq!(authorize(), Ok(()));
+    assert_eq!(client.session(&public).unwrap().remaining, 10);
+    assert!(!client.sessions_paused());
+    assert!(client.try_set_sessions_paused(&true).is_err());
+    e.mock_all_auths();
+    client.set_sessions_paused(&true);
+    e.set_auths(&[]);
+    assert!(client.sessions_paused());
+    assert_eq!(authorize(), Err(Ok(Error::Paused)));
+    assert_eq!(client.session(&public).unwrap().remaining, 10);
+    assert!(client.try_set_sessions_paused(&false).is_err());
+    e.mock_all_auths();
+    client.set_sessions_paused(&false);
+    e.set_auths(&[]);
+    assert_eq!(authorize(), Ok(()));
+    assert_eq!(client.session(&public).unwrap().remaining, 5);
+    assert_eq!(client.config().threshold, 1);
+}
+
+#[test]
+fn failed_authorization_keeps_budget_unchanged() {
+    let (e, account, asset, signing) = setup();
+    let public = BytesN::from_array(&e, &signing.verifying_key().to_bytes());
+    let payload = BytesN::from_array(&e, &[9; 32]);
+    let forged = Signature::Session(public.clone(), BytesN::from_array(&e, &[0; 64]));
+    let contexts = vec![
+        &e,
+        Context::Contract(ContractContext {
+            contract: asset,
+            fn_name: Symbol::new(&e, "transfer"),
+            args: (account.clone(), Address::generate(&e), 5i128).into_val(&e),
+        }),
+    ];
+    assert!(e
+        .try_invoke_contract_check_auth::<Error>(&account, &payload, forged.into_val(&e), &contexts)
+        .is_err());
+    assert_eq!(
+        AccountClient::new(&e, &account)
+            .session(&public)
+            .unwrap()
+            .remaining,
+        15
+    );
 }

@@ -1,11 +1,19 @@
 //! RemitPulse token subsidy vault. Network fees are sponsored by an off-chain fee-bump payer.
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, BytesN, Env};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env,
+};
 #[contracttype]
 #[derive(Clone)]
 enum Key {
     Admin,
     Used(BytesN<32>),
+}
+#[contracterror]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Error {
+    InvalidAmount = 1,
+    AlreadyReimbursed = 2,
 }
 #[contract]
 pub struct Subsidy;
@@ -13,21 +21,38 @@ pub struct Subsidy;
 impl Subsidy {
     pub fn __constructor(e: Env, admin: Address) {
         e.storage().instance().set(&Key::Admin, &admin);
+        e.storage().instance().extend_ttl(120_960, 518_400);
     }
     /// Admin-authorized, exactly-once token reimbursement. Fund the vault by SEP-41 transfer.
     /// Each token (USDC/EURC/ARST/BRLA) has its own balance and native base-unit amounts.
-    pub fn reimburse(e: Env, id: BytesN<32>, asset: Address, recipient: Address, amount: i128) {
+    pub fn admin(e: Env) -> Address {
+        e.storage().instance().get(&Key::Admin).unwrap()
+    }
+    pub fn is_reimbursed(e: Env, id: BytesN<32>) -> bool {
+        e.storage().instance().has(&Key::Used(id))
+    }
+    pub fn reimburse(
+        e: Env,
+        id: BytesN<32>,
+        asset: Address,
+        recipient: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
         let admin: Address = e.storage().instance().get(&Key::Admin).unwrap();
         admin.require_auth();
-        assert!(amount > 0);
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
         // Instance storage keeps replay markers with the vault, including after archival restore.
-        assert!(
-            !e.storage().instance().has(&Key::Used(id.clone())),
-            "already reimbursed"
-        );
-        e.storage().instance().set(&Key::Used(id), &true);
+        if Self::is_reimbursed(e.clone(), id.clone()) {
+            return Err(Error::AlreadyReimbursed);
+        }
+        e.storage().instance().set(&Key::Used(id.clone()), &true);
         token::Client::new(&e, &asset).transfer(&e.current_contract_address(), &recipient, &amount);
+        e.events()
+            .publish((symbol_short!("subsidy"), id), (asset, recipient, amount));
         e.storage().instance().extend_ttl(120_960, 518_400);
+        Ok(())
     }
 }
 #[cfg(test)]

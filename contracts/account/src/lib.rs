@@ -3,8 +3,8 @@
 use remitpulse_webauthn_verifier::{verify_assertion, Assertion};
 use soroban_sdk::{
     auth::{Context, CustomAccountInterface},
-    contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env, Symbol,
-    TryFromVal, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env,
+    Symbol, TryFromVal, Vec,
 };
 
 #[contracttype]
@@ -20,6 +20,8 @@ pub struct Config {
 pub struct Session {
     /// Network-specific SEP-41/SAC token address: USDC, EURC, ARST, BRLA, etc.
     pub token: Address,
+    /// Some(address) restricts this key to a single remittance beneficiary.
+    pub recipient: Option<Address>,
     /// Amounts are token base units, never a cross-currency USD valuation.
     pub per_transfer: i128,
     pub remaining: i128,
@@ -35,6 +37,7 @@ pub enum Signature {
 #[derive(Clone)]
 enum Key {
     Config,
+    SessionsPaused,
     Session(BytesN<32>),
 }
 #[contracterror]
@@ -44,6 +47,7 @@ pub enum Error {
     Expired = 2,
     Scope = 3,
     Limit = 4,
+    Paused = 5,
 }
 #[contract]
 pub struct Account;
@@ -78,13 +82,45 @@ impl Account {
         assert!(session.expires_at > e.ledger().timestamp());
         e.storage()
             .instance()
-            .set(&Key::Session(public_key), &session);
+            .set(&Key::Session(public_key.clone()), &session);
+        e.events().publish(
+            (symbol_short!("session"), symbol_short!("set"), public_key),
+            session,
+        );
         touch(&e);
     }
     pub fn revoke_session(e: Env, public_key: BytesN<32>) {
         e.current_contract_address().require_auth();
-        e.storage().instance().remove(&Key::Session(public_key));
+        e.storage()
+            .instance()
+            .remove(&Key::Session(public_key.clone()));
+        e.events().publish(
+            (
+                symbol_short!("session"),
+                symbol_short!("revoked"),
+                public_key,
+            ),
+            (),
+        );
         touch(&e);
+    }
+    /// A passkey quorum may freeze all sessions without blocking passkey transfers or revocation.
+    pub fn set_sessions_paused(e: Env, paused: bool) {
+        e.current_contract_address().require_auth();
+        e.storage().instance().set(&Key::SessionsPaused, &paused);
+        e.events()
+            .publish((symbol_short!("session"), symbol_short!("paused")), paused);
+        touch(&e);
+    }
+    pub fn sessions_paused(e: Env) -> bool {
+        e.storage()
+            .instance()
+            .get(&Key::SessionsPaused)
+            .unwrap_or(false)
+    }
+    /// Lets clients discover the credential order, quorum, RP binding and origin.
+    pub fn config(e: Env) -> Config {
+        e.storage().instance().get(&Key::Config).unwrap()
     }
     pub fn session(e: Env, public_key: BytesN<32>) -> Option<Session> {
         e.storage().instance().get(&Key::Session(public_key))
@@ -130,6 +166,9 @@ impl CustomAccountInterface for Account {
                 }
             }
             Signature::Session(public_key, sig) => {
+                if Self::sessions_paused(e.clone()) {
+                    return Err(Error::Paused);
+                }
                 let storage_key = Key::Session(public_key.clone());
                 let mut session: Session = e
                     .storage()
@@ -156,10 +195,17 @@ impl CustomAccountInterface for Account {
                     }
                     let from = Address::try_from_val(&e, &call.args.get(0).unwrap())
                         .map_err(|_| Error::Scope)?;
-                    let _to = Address::try_from_val(&e, &call.args.get(1).unwrap())
+                    let to = Address::try_from_val(&e, &call.args.get(1).unwrap())
                         .map_err(|_| Error::Scope)?;
                     let amount = i128::try_from_val(&e, &call.args.get(2).unwrap())
                         .map_err(|_| Error::Scope)?;
+                    if session
+                        .recipient
+                        .as_ref()
+                        .is_some_and(|recipient| *recipient != to)
+                    {
+                        return Err(Error::Scope);
+                    }
                     if from != e.current_contract_address() {
                         return Err(Error::Scope);
                     }
@@ -175,6 +221,10 @@ impl CustomAccountInterface for Account {
                     .ed25519_verify(&public_key, &Bytes::from(signature_payload), &sig);
                 session.remaining -= total;
                 e.storage().instance().set(&storage_key, &session);
+                e.events().publish(
+                    (symbol_short!("session"), symbol_short!("spent"), public_key),
+                    (total, session.remaining),
+                );
             }
         }
         touch(&e);
