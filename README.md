@@ -27,6 +27,14 @@ Install Rust using rustup, then a Stellar CLI with Protocol 22 support (the
 successor to `soroban-cli`). The toolchain file installs the required Rust target.
 Deployment-script tests require Python 3.11 or later.
 
+Run the complete local CI suite with:
+
+```sh
+make ci
+```
+
+Or run individual checks:
+
 ```sh
 cargo test --workspace --locked
 python3 -m unittest discover -s tests -v
