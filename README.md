@@ -239,3 +239,38 @@ operations; the vault does not prove that a network fee was actually paid.
 These contracts have not received an independent security audit. Mainnet
 deployment support is provided, but production use requires review of the
 account and enrollment flow.
+
+## Interface reference
+
+[`docs/INTERFACES.md`](docs/INTERFACES.md) is the maintained reference for every
+public contract entrypoint, including authorization requirements, input
+validation, storage effects, emitted events and error codes. It is checked
+against the source in CI, so a contract change that alters an entrypoint, event
+or error without updating the reference fails the build. Consumers should treat
+it as the stable interface contract; review it alongside any contract change.
+
+## Mainnet deployment checklist
+
+[`docs/MAINNET_CHECKLIST.md`](docs/MAINNET_CHECKLIST.md) is the preflight
+checklist for production releases. It covers commit pinning, WASM checksum
+verification against the CI `SHA256SUMS` manifest, network and RPC
+configuration, administrator identity confirmation, and rollback/incident
+readiness, and it distinguishes testnet from mainnet requirements. Maintainers
+must complete it during release review and execution before any mainnet
+deployment. It never requires private keys or other sensitive values to be
+committed; secrets stay in the operator's environment.
+
+## Branch protection
+
+The `main` branch is protected:
+
+- Changes to `main` require a pull request; direct pushes are not permitted.
+- The contract CI workflow (`make ci`, including the contract test suite) is a
+  required status check that must pass before merge.
+- Force pushes and branch deletion are restricted to maintainers per the
+  repository's configured policy.
+
+Documentation review is part of the pull-request expectations: changes that
+touch contract entrypoints, events or errors must update
+[`docs/INTERFACES.md`](docs/INTERFACES.md), and release-affecting changes must
+confirm the [mainnet checklist](docs/MAINNET_CHECKLIST.md) where applicable.

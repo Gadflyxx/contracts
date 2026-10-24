@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # RemitPulse: build optimized artifacts, deploy, and atomically initialize constructors.
+# Mainnet preflight: complete docs/mainnet-deployment-checklist.md before deploying.
+# Never commit private keys or other secrets; supply them only via environment/CLI identity.
 set -euo pipefail
 cd "$(dirname "$0")"
 network=${1:-testnet}
