@@ -33,11 +33,12 @@ jobs:
         run: sha256sum target/wasm32v1-none/release/remitpulse_*.wasm > target/wasm32v1-none/release/SHA256SUMS
       - uses: actions/upload-artifact@v7
         with:
-          name: remitpulse-contracts-${{ github.sha }}
+          name: remitpulse-contracts-${{ github.sha }}-wasm32v1-none
           path: |
             target/wasm32v1-none/release/remitpulse_*.wasm
             target/wasm32v1-none/release/SHA256SUMS
           if-no-files-found: error
+          retention-days: 30
 
   reproducible-build:
     name: reproducible-build
@@ -114,3 +115,4 @@ jobs:
             build-b-checksums.txt
             checksum-diff.txt
           if-no-files-found: warn
+          retention-days: 30
