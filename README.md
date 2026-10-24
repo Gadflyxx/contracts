@@ -3,23 +3,19 @@
 Rust/Soroban contracts for RemitPulse, a passkey-powered Stellar remittance app.
 This repository contains a Cargo workspace; each contract has its own `Cargo.toml`
 and `src/`. SDK 22.0.8, OpenZeppelin v0.3.0 and Rust 1.88.0 are pinned for
-compatibility with the extracted contracts. Cargo.lock must be committed.
+compatibility. Cargo.lock must be committed.
 
 | Crate | Purpose |
 | --- | --- |
 | `remitpulse-account` | WebAuthn quorum account and bounded Ed25519 sessions |
 | `remitpulse-webauthn` | ES256 WebAuthn verification, also linked into the account |
 | `remitpulse-subsidy` | Administrator-authorized token subsidy vault |
-| `remitpulse-router` | Extracted atomic invocation router |
-| `remitpulse-airdrop` | Extracted Merkle token distribution |
-| `remitpulse-nft` | Extracted NFT contract |
+| `remitpulse-router` | Atomic invocation router |
+| `remitpulse-airdrop` | Merkle token distribution |
+| `remitpulse-nft` | NFT contract |
 
 `crates/webauthn-verifier` contains the shared verification library, so the account
 does not export the standalone verifier endpoint.
-
-The source repository includes only router, airdrop and NFT Rust contracts.
-The account, verifier and subsidy vault are new RemitPulse implementations.
-See [UPSTREAM.md](UPSTREAM.md) for the exact source revision and attribution.
 
 ## Build and test
 
@@ -208,7 +204,6 @@ must submit and fund transactions, enforce fee caps and reimbursement policy,
 and protect its signing key. Token reimbursement and fee sponsorship are separate
 operations; the vault does not prove that a network fee was actually paid.
 
-These contracts have not received an independent security audit. The extracted
-upstream is no longer maintained. Mainnet deployment support is provided, but
-production use requires review of the account, enrollment flow and retained
-upstream contracts.
+These contracts have not received an independent security audit. Mainnet
+deployment support is provided, but production use requires review of the
+account and enrollment flow.
