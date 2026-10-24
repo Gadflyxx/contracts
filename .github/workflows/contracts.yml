@@ -46,12 +46,13 @@ jobs:
           EOF
       - uses: actions/upload-artifact@v7
         with:
-          name: remitpulse-contracts-${{ github.sha }}
+          name: remitpulse-contracts-${{ github.sha }}-wasm32v1-none
           path: |
             target/wasm32v1-none/release/remitpulse_*.wasm
             target/wasm32v1-none/release/SHA256SUMS
             target/wasm32v1-none/release/provenance.json
           if-no-files-found: error
+          retention-days: 30
 
   clippy:
     runs-on: ubuntu-latest
