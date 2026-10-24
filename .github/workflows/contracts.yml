@@ -38,3 +38,79 @@ jobs:
             target/wasm32v1-none/release/remitpulse_*.wasm
             target/wasm32v1-none/release/SHA256SUMS
           if-no-files-found: error
+
+  reproducible-build:
+    name: reproducible-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          targets: wasm32v1-none
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release WASM (build A)
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/build-a
+        run: cargo build --workspace --locked --release --target wasm32v1-none
+      - name: Build release WASM (build B)
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/build-b
+        run: cargo build --workspace --locked --release --target wasm32v1-none
+      - name: Compute checksums (build A)
+        run: |
+          set -euo pipefail
+          out=build-a/wasm32v1-none/release
+          shopt -s nullglob
+          files=("$out"/remitpulse_*.wasm)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No remitpulse_*.wasm artifacts found in $out"
+            exit 1
+          fi
+          : > build-a-checksums.txt
+          for f in "${files[@]}"; do
+            sha256sum "$f" | sed "s|$out/||" >> build-a-checksums.txt
+          done
+          sort -k2 build-a-checksums.txt -o build-a-checksums.txt
+          echo "Build A artifacts:"
+          cat build-a-checksums.txt
+      - name: Compute checksums (build B)
+        run: |
+          set -euo pipefail
+          out=build-b/wasm32v1-none/release
+          shopt -s nullglob
+          files=("$out"/remitpulse_*.wasm)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No remitpulse_*.wasm artifacts found in $out"
+            exit 1
+          fi
+          : > build-b-checksums.txt
+          for f in "${files[@]}"; do
+            sha256sum "$f" | sed "s|$out/||" >> build-b-checksums.txt
+          done
+          sort -k2 build-b-checksums.txt -o build-b-checksums.txt
+          echo "Build B artifacts:"
+          cat build-b-checksums.txt
+      - name: Compare checksums
+        run: |
+          set -euo pipefail
+          if diff -u build-a-checksums.txt build-b-checksums.txt > checksum-diff.txt; then
+            echo "Reproducible build verified: all remitpulse WASM artifacts match."
+            cat build-a-checksums.txt
+          else
+            echo "::error::Reproducible build check failed: WASM checksums differ between build A and build B."
+            echo "--- Artifact checksum diff (build A vs build B) ---"
+            cat checksum-diff.txt
+            echo "--------------------------------------------------"
+            exit 1
+          fi
+      - name: Upload checksum diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: remitpulse-reproducible-build-${{ github.sha }}
+          path: |
+            build-a-checksums.txt
+            build-b-checksums.txt
+            checksum-diff.txt
+          if-no-files-found: warn
