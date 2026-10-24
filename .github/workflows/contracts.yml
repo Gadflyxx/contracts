@@ -1,5 +1,5 @@
 name: RemitPulse contracts
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 
 # The workflow only reads source code and uploads build artifacts.
 permissions:
