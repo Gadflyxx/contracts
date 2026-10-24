@@ -1,5 +1,5 @@
 export RUSTUP_TOOLCHAIN := $(shell sed -n 's/^channel = //p' rust-toolchain.toml | tr -d '"')
-.PHONY: test build optimize deploy-testnet deploy-mainnet fmt check test-wasm checksums verify ci reproducible-build
+.PHONY: test build optimize deploy-testnet deploy-mainnet fmt check lint shellcheck audit test-wasm checksums verify ci reproducible-build
 STELLAR_CLI ?= stellar
 COMPONENT ?= core
 WASM_DIR ?= target/wasm32v1-none/release
@@ -17,9 +17,22 @@ deploy-mainnet:
 	STELLAR_CLI=$(STELLAR_CLI) ./deploy.sh mainnet $(COMPONENT)
 fmt:
 	cargo fmt --all
+# Lint repository code only; dependency lints are excluded via --no-deps.
+lint:
+	cargo clippy --workspace --all-targets --locked --no-deps -- -D warnings
+# ShellCheck deployment scripts. SC1091 is excluded because sourced files are
+# resolved at runtime and not statically analyzable.
+shellcheck:
+	shellcheck --exclude=SC1091 deploy.sh scripts/build.sh
+# Lockfile-based vulnerability scan; consumes Cargo.lock and fails on advisories.
+audit:
+	cargo audit --file Cargo.lock
 check:
 	cargo fmt --all -- --check
 	cargo test --workspace --locked
+	$(MAKE) lint
+	$(MAKE) shellcheck
+	$(MAKE) audit
 	bash -n deploy.sh scripts/build.sh
 	python3 -m unittest discover -s tests -v
 

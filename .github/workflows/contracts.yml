@@ -31,14 +31,64 @@ jobs:
       - run: cargo test -p remitpulse-account --locked --features wasm-tests
       - name: Record WASM checksums
         run: sha256sum target/wasm32v1-none/release/remitpulse_*.wasm > target/wasm32v1-none/release/SHA256SUMS
+      - name: Record WASM provenance
+        run: |
+          set -euo pipefail
+          RUSTC_VERSION="$(rustc --version)"
+          SHA256SUMS_HASH="$(sha256sum target/wasm32v1-none/release/SHA256SUMS | awk '{print $1}')"
+          cat > target/wasm32v1-none/release/provenance.json <<EOF
+          {
+            "commit_sha": "${GITHUB_SHA}",
+            "rustc_version": "${RUSTC_VERSION}",
+            "target": "wasm32v1-none",
+            "sha256sums_sha256": "${SHA256SUMS_HASH}"
+          }
+          EOF
       - uses: actions/upload-artifact@v7
         with:
           name: remitpulse-contracts-${{ github.sha }}-wasm32v1-none
           path: |
             target/wasm32v1-none/release/remitpulse_*.wasm
             target/wasm32v1-none/release/SHA256SUMS
+            target/wasm32v1-none/release/provenance.json
           if-no-files-found: error
           retention-days: 30
+
+  clippy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # --no-deps keeps lint output scoped to repository code; -D warnings fails on any project warning.
+      - run: cargo clippy --workspace --all-targets --locked --no-deps -- -D warnings
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      # Any exclusions must be narrowly scoped inline `# shellcheck disable=` directives in the scripts.
+      - name: Run ShellCheck
+        run: shellcheck deploy.sh scripts/build.sh
+
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      # Scans Cargo.lock. Documented, time-bounded exceptions belong in .cargo/audit.toml (ignore list).
+      - name: Run cargo audit
+        run: cargo audit --file Cargo.lock
 
   reproducible-build:
     name: reproducible-build
