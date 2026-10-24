@@ -6,8 +6,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 network=${1:-testnet}
 component=${2:-core}
-case "$network" in testnet|mainnet) ;; *) echo 'Network must be testnet or mainnet' >&2; exit 2;; esac
-case "$component" in core|router|webauthn|account|subsidy|airdrop|nft) ;; *) echo 'Unknown component' >&2; exit 2;; esac
+case "$network" in testnet|mainnet) ;; *) echo "Network must be testnet or mainnet (got '$network')" >&2; exit 2;; esac
+case "$component" in core|router|webauthn|account|subsidy|airdrop|nft) ;; *) echo "Unknown component '$component' (expected one of: core, router, webauthn, account, subsidy, airdrop, nft)" >&2; exit 2;; esac
 : "${SOURCE_ACCOUNT:?Set SOURCE_ACCOUNT to a funded CLI identity}"
 CLI=${STELLAR_CLI:-stellar} # Set to soroban for the legacy soroban-cli binary.
 command -v "$CLI" >/dev/null
@@ -17,10 +17,13 @@ case "$component" in
 esac
 case "$component" in core|subsidy|airdrop) : "${ADMIN:?Set ADMIN to the administrator address or CLI identity}";; esac
 case "$component" in
-  airdrop) : "${ROOT_HASH:?}" "${TOKEN:?}" "${FUNDER:?}";;
-  nft) : "${OWNER:?}" "${MAX_SUPPLY:?}" "${METADATA:?Set METADATA JSON}";;
+  airdrop) : "${ROOT_HASH:?Set ROOT_HASH to the airdrop Merkle root}" "${TOKEN:?Set TOKEN to the token contract address}" "${FUNDER:?Set FUNDER to the funding address or CLI identity}";;
+  nft) : "${OWNER:?Set OWNER to the NFT owner address or CLI identity}" "${MAX_SUPPLY:?Set MAX_SUPPLY to the maximum token supply}" "${METADATA:?Set METADATA JSON}";;
 esac
-python3 scripts/validate_deployment.py "$component"
+if ! python3 scripts/validate_deployment.py "$component"; then
+  echo "Deployment preflight failed for component '$component'" >&2
+  exit 2
+fi
 # Stellar CLI builds optimized WASM by default. Legacy CLI requires explicit optimize.
 STELLAR_CLI="$CLI" ./scripts/build.sh
 if [[ "${CLI##*/}" == soroban ]]; then

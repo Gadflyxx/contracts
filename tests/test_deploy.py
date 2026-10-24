@@ -173,7 +173,89 @@ if sys.argv[1:3] == ['contract', 'build']:
             self.assertNotIn(name, deploy_script)
         for path in (ROOT / "deployments").glob("*.env"):
             self.assertNotIn("SECRET", path.read_text().upper())
-=======
+
+    def test_unknown_component_names_are_rejected(self):
+        for component in ["bogus", "Core", "", "core ", "nft2"]:
+            result, calls, records = self.run_deploy(component=component)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("Unknown component", result.stderr)
+            self.assertEqual(calls, [])
+            self.assertEqual(records, [])
+
+    def test_missing_required_environment_values_are_reported(self):
+        cases = [
+            ("core", "SOURCE_ACCOUNT"),
+            ("core", "ADMIN"),
+            ("core", "ACCOUNT_CONFIG"),
+            ("account", "ACCOUNT_CONFIG"),
+            ("subsidy", "SOURCE_ACCOUNT"),
+            ("subsidy", "ADMIN"),
+            ("airdrop", "SOURCE_ACCOUNT"),
+            ("airdrop", "ADMIN"),
+            ("airdrop", "ROOT_HASH"),
+            ("airdrop", "TOKEN"),
+            ("airdrop", "FUNDER"),
+            ("nft", "SOURCE_ACCOUNT"),
+            ("nft", "OWNER"),
+            ("nft", "MAX_SUPPLY"),
+            ("nft", "METADATA"),
+        ]
+        for component, variable in cases:
+            with self.subTest(component=component, variable=variable):
+                result, calls, records = self.run_deploy(component=component, missing=variable)
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn(variable, result.stderr)
+                self.assertEqual(calls, [])
+                self.assertEqual(records, [])
+
+    def test_malformed_metadata_is_rejected(self):
+        for metadata in ["not json", "[]", "null", '"string"',
+                         "{}",
+                         '{"base_uri":"ipfs://remitpulse/", "name":"RemitPulse"}',
+                         '{"base_uri":"", "name":"RemitPulse", "symbol":"RP"}',
+                         '{"base_uri":"ipfs://remitpulse/", "name":"", "symbol":"RP"}',
+                         '{"base_uri":"ipfs://remitpulse/", "name":"RemitPulse", "symbol":""}',
+                         '{"base_uri":1, "name":"RemitPulse", "symbol":"RP"}',
+                         '{"base_uri":"ipfs://remitpulse/", "name":2, "symbol":"RP"}',
+                         '{"base_uri":"ipfs://remitpulse/", "name":"RemitPulse", "symbol":3}',
+                         '{"base_uri":"ipfs://remitpulse/", "name":"RemitPulse", "symbol":"RP", "extra":"x"}']:
+            with self.subTest(metadata=metadata):
+                result, calls, records = self.run_deploy(component="nft",
+                                                         overrides={"METADATA": metadata})
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("Deployment configuration invalid", result.stderr)
+                self.assertEqual(calls, [])
+                self.assertEqual(records, [])
+
+    def test_rejected_network_selection(self):
+        for network in ["devnet", "mainnet ", "", "Mainnet", "futurenet"]:
+            with self.subTest(network=network):
+                result, calls, records = self.run_deploy(network=network)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("Network must be testnet or mainnet", result.stderr)
+                self.assertEqual(calls, [])
+                self.assertEqual(records, [])
+
+    def test_validate_deployment_script_reports_invalid_configuration(self):
+        cases = [
+            {"ACCOUNT_CONFIG": "not json"},
+            {"ACCOUNT_CONFIG": json.dumps({**CONFIG, "threshold": 0})},
+            {"ROOT_HASH": "bad"},
+            {"MAX_SUPPLY": "-1"},
+            {"MAX_SUPPLY": "not-a-number"},
+            {"METADATA": "{}"},
+            {"METADATA": "not json"},
+        ]
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                env = {**os.environ, "ACCOUNT_CONFIG": CONFIG_JSON, "ROOT_HASH": "00" * 32,
+                       "MAX_SUPPLY": "10",
+                       "METADATA": '{"base_uri":"ipfs://remitpulse/", "name":"RemitPulse", "symbol":"RP"}'}
+                env.update(overrides)
+                result = subprocess.run([str(ROOT / "scripts/validate_deployment.py")],
+                                        env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("Deployment configuration invalid", result.stderr)
 
 
 if __name__ == "__main__":

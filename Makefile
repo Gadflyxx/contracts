@@ -65,4 +65,3 @@ reproducible-build:
 
 verify: check test-wasm
 ci: verify reproducible-build
-</｜｜DSML｜｜ parameter>

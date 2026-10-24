@@ -23,7 +23,10 @@ def hex_bytes(value, length, label):
 
 
 def account_config(raw):
-    config = json.loads(raw)
+    try:
+        config = json.loads(raw)
+    except (TypeError, json.JSONDecodeError) as error:
+        raise ValueError(f"ACCOUNT_CONFIG must be valid JSON: {error}") from error
     if not isinstance(config, dict) or set(config) != {"keys", "threshold", "rp_id_hash", "origin"}:
         raise ValueError("ACCOUNT_CONFIG requires keys, threshold, rp_id_hash and origin")
     keys = config["keys"]
@@ -45,26 +48,40 @@ def account_config(raw):
     raw_origin = config["origin"]
     if not isinstance(raw_origin, str) or len(raw_origin) > 1024:
         raise ValueError("origin must be UTF-8 hex, at most 512 bytes")
-    origin = bytes.fromhex(raw_origin).decode("utf-8")
+    try:
+        origin = bytes.fromhex(raw_origin).decode("utf-8")
+    except (ValueError, UnicodeDecodeError) as error:
+        raise ValueError("origin must be UTF-8 hex, at most 512 bytes") from error
     url = urlsplit(origin)
     if (url.scheme != "https" or not url.hostname or url.path or url.query or url.fragment
             or url.username is not None or url.password is not None
             or any(c.isspace() or ord(c) < 32 for c in origin) or "\\" in origin):
         raise ValueError("origin must be an HTTPS origin without path, credentials, query or fragment")
     # Also rejects invalid/out-of-range ports.
-    _ = url.port
+    try:
+        _ = url.port
+    except ValueError as error:
+        raise ValueError("origin must be an HTTPS origin without path, credentials, query or fragment") from error
 
 
 def validate(component, env):
+    if component not in ("core", "account", "airdrop", "nft"):
+        raise ValueError(f"unknown component {component!r}; expected core, account, airdrop or nft")
     if component in ("core", "account"):
         account_config(env["ACCOUNT_CONFIG"])
     if component == "airdrop":
         hex_bytes(env["ROOT_HASH"], 32, "ROOT_HASH")
     if component == "nft":
-        supply = int(env["MAX_SUPPLY"])
+        try:
+            supply = int(env["MAX_SUPPLY"])
+        except (TypeError, ValueError) as error:
+            raise ValueError("MAX_SUPPLY must be a positive u32") from error
         if not 0 < supply <= 0xFFFFFFFF:
             raise ValueError("MAX_SUPPLY must be a positive u32")
-        metadata = json.loads(env["METADATA"])
+        try:
+            metadata = json.loads(env["METADATA"])
+        except (TypeError, json.JSONDecodeError) as error:
+            raise ValueError(f"METADATA must be valid JSON: {error}") from error
         if not isinstance(metadata, dict) or set(metadata) != {"base_uri", "name", "symbol"}:
             raise ValueError("METADATA requires base_uri, name and symbol")
         if not all(isinstance(v, str) and v for v in metadata.values()):
@@ -74,6 +91,12 @@ def validate(component, env):
 if __name__ == "__main__":
     try:
         validate(sys.argv[1], os.environ)
-    except (ValueError, KeyError, IndexError) as error:
+    except KeyError as error:
+        print(f"Deployment configuration invalid: missing required environment variable {error}", file=sys.stderr)
+        sys.exit(2)
+    except IndexError:
+        print("Deployment configuration invalid: missing component argument", file=sys.stderr)
+        sys.exit(2)
+    except ValueError as error:
         print(f"Deployment configuration invalid: {error}", file=sys.stderr)
         sys.exit(2)
