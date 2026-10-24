@@ -22,6 +22,9 @@ python3 scripts/validate_deployment.py "$component"
 # Stellar CLI builds optimized WASM by default. Legacy CLI requires explicit optimize.
 STELLAR_CLI="$CLI" ./scripts/build.sh
 if [[ "${CLI##*/}" == soroban ]]; then
+  # SC2035: the glob is intentionally relative and unquoted so it expands to the
+  # built WASM artifacts; quoting would pass a literal pattern to the loop.
+  # shellcheck disable=SC2035
   for wasm in target/wasm32v1-none/release/remitpulse_*.wasm; do
     [[ "$wasm" == *.optimized.wasm ]] && continue
     "$CLI" contract optimize --wasm "$wasm" --wasm-out "${wasm%.wasm}.optimized.wasm"
@@ -36,6 +39,9 @@ deploy() {
   wasm="target/wasm32v1-none/release/remitpulse_${name}.wasm"
   [[ "${CLI##*/}" == soroban ]] && wasm="${wasm%.wasm}.optimized.wasm"
   if (( $# )); then
+    # SC2068: "$@" is intentionally forwarded verbatim as constructor args to the
+    # CLI; each argument is already quoted by the caller, so no re-splitting occurs.
+    # shellcheck disable=SC2068
     id=$("$CLI" contract deploy --wasm "$wasm" --source-account "$SOURCE_ACCOUNT" --network "$network" -- "$@")
   else
     id=$("$CLI" contract deploy --wasm "$wasm" --source-account "$SOURCE_ACCOUNT" --network "$network")

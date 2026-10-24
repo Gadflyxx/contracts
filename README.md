@@ -35,9 +35,22 @@ Or run individual checks:
 cargo test --workspace --locked
 python3 -m unittest discover -s tests -v
 cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+shellcheck deploy.sh scripts/build.sh
+cargo audit --file Cargo.lock
 cargo build --workspace --locked --release --target wasm32v1-none
 make build
 ```
+
+`cargo clippy` treats every warning in repository code as an error; dependency
+lint output is excluded so the check focuses on this workspace. ShellCheck covers
+`deploy.sh` and `scripts/build.sh`; any suppression is scoped to a single line
+with an inline `# shellcheck disable=...` comment and a short justification.
+`cargo audit` reads `Cargo.lock` and fails on known advisories; install it with
+`cargo install cargo-audit --locked`. If an advisory must be deferred, add a
+time-bounded entry to `audit.toml` with an expiry and rationale, and remove it
+once the dependency is updated. CI runs all three checks on every push and pull
+request.
 
 `make build` and `deploy.sh` use `scripts/build.sh`, which explicitly selects the
 Rust version from `rust-toolchain.toml` for the CLI and its Cargo subprocesses.
@@ -83,6 +96,29 @@ format checks, builds the release artifacts, and runs the account suite again
 against `remitpulse_account.wasm` inside the Soroban VM. CI uploads the exact
 WASM files with a `SHA256SUMS` manifest, so release candidates can be verified
 against the reviewed build output.
+
+## Verify WASM provenance
+
+CI uploads a `provenance.json` record alongside the WASM artifacts and
+`SHA256SUMS`. The record lists, for each artifact, the commit SHA, the Rust
+toolchain version, the build target (`wasm32v1-none`) and the artifact checksum.
+Before deploying a downloaded artifact:
+
+1. Recompute the checksum and compare it with both `SHA256SUMS` and the
+   `checksum` field in `provenance.json`:
+
+   ```sh
+   sha256sum remitpulse_account.wasm
+   grep remitpulse_account.wasm SHA256SUMS
+   ```
+
+2. Confirm the `commit` field matches the reviewed release commit
+   (`git rev-parse HEAD` on the reviewed checkout).
+3. Confirm the `toolchain` field matches `rust-toolchain.toml` and the `target`
+   field is `wasm32v1-none`.
+
+If any value differs, do not deploy the artifact; rebuild from the reviewed
+commit with the pinned toolchain instead.
 
 ## Passkeys and sessions
 
