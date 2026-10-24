@@ -84,6 +84,38 @@ against `remitpulse_account.wasm` inside the Soroban VM. CI uploads the exact
 WASM files with a `SHA256SUMS` manifest, so release candidates can be verified
 against the reviewed build output.
 
+## CI artifacts and release verification
+
+CI publishes the release WASM binaries as GitHub Actions run artifacts on the
+workflow run for the reviewed commit. Artifacts are named
+`remitpulse-contracts-<commit-sha>-<build-target>`, where `<commit-sha>` is the
+full 40-character commit SHA and `<build-target>` is the build target (for
+example `wasm32v1-none`). Each artifact contains the `remitpulse_*.wasm` files
+and a `SHA256SUMS` manifest. Artifacts are retained for **90 days**; download
+and archive the ones needed for a release before they expire.
+
+Release operators can download an artifact from the Actions UI for the
+reviewed run, or with the GitHub CLI:
+
+```sh
+gh run download <run-id> \
+  --name remitpulse-contracts-<commit-sha>-wasm32v1-none \
+  --dir artifacts
+```
+
+Verify the downloaded binaries against the reviewed build output using the
+uploaded manifest:
+
+```sh
+cd artifacts
+sha256sum -c SHA256SUMS
+```
+
+Alternatively, rebuild from the same reviewed commit with `make build` and
+compare checksums against the manifest (or the downloaded files) to confirm the
+artifacts match a reproducible local build. Do not deploy binaries whose
+checksums do not match the reviewed output.
+
 ## Passkeys and sessions
 
 Construct an account with `Config`: unique uncompressed SEC1 P-256 public keys
