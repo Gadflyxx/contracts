@@ -1,5 +1,10 @@
 name: RemitPulse contracts
 on: [push, pull_request]
+
+# The workflow only reads source code and uploads build artifacts.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
