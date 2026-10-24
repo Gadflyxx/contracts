@@ -1,8 +1,9 @@
 export RUSTUP_TOOLCHAIN := $(shell sed -n 's/^channel = //p' rust-toolchain.toml | tr -d '"')
-.PHONY: test build optimize deploy-testnet deploy-mainnet fmt check lint shellcheck audit test-wasm checksums verify ci
+.PHONY: test build optimize deploy-testnet deploy-mainnet fmt check lint shellcheck audit test-wasm checksums verify ci reproducible-build
 STELLAR_CLI ?= stellar
 COMPONENT ?= core
 WASM_DIR ?= target/wasm32v1-none/release
+REPRO_DIR ?= target/repro
 test:
 	cargo test --workspace --locked
 	python3 -m unittest discover -s tests -v
@@ -54,5 +55,41 @@ checksums:
 	echo "wrote $(WASM_DIR)/SHA256SUMS:"; \
 	cat SHA256SUMS
 
+# Reproducible build check: build twice into isolated output directories and
+# compare checksums of every emitted remitpulse WASM artifact.
+reproducible-build:
+	rm -rf "$(REPRO_DIR)"
+	mkdir -p "$(REPRO_DIR)/build-a" "$(REPRO_DIR)/build-b"
+	STELLAR_CLI="$(STELLAR_CLI)" OUT_DIR="$(REPRO_DIR)/build-a" ./scripts/build.sh
+	STELLAR_CLI="$(STELLAR_CLI)" OUT_DIR="$(REPRO_DIR)/build-b" ./scripts/build.sh
+	@set -e; \
+	cd "$(REPRO_DIR)/build-a"; \
+	files=$$(find . -type f -name '*remitpulse*.wasm' | sort); \
+	if [ -z "$$files" ]; then \
+		echo "ERROR: no remitpulse WASM artifacts found in $(REPRO_DIR)/build-a" >&2; \
+		exit 1; \
+	fi; \
+	status=0; \
+	for f in $$files; do \
+		a="$(REPRO_DIR)/build-a/$$f"; \
+		b="$(REPRO_DIR)/build-b/$$f"; \
+		if [ ! -f "$$b" ]; then \
+			echo "ERROR: missing artifact in second build: $$f" >&2; \
+			status=1; \
+			continue; \
+		fi; \
+		ha=$$(sha256sum "$$a" | cut -d' ' -f1); \
+		hb=$$(sha256sum "$$b" | cut -d' ' -f1); \
+		if [ "$$ha" != "$$hb" ]; then \
+			echo "ERROR: checksum mismatch for $$f" >&2; \
+			echo "  build-a: $$ha" >&2; \
+			echo "  build-b: $$hb" >&2; \
+			status=1; \
+		else \
+			echo "OK: $$f $$ha"; \
+		fi; \
+	done; \
+	exit $$status
+
 verify: check test-wasm checksums
-ci: verify
+ci: verify reproducible-build

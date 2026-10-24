@@ -125,6 +125,55 @@ if sys.argv[1:3] == ['contract', 'deploy']:
             for arg in arguments:
                 self.assertIn(arg, calls[1])
 
+    def test_build_script_honours_output_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            cli = tmp / "stellar"
+            cli.write_text("""#!/usr/bin/env python3
+import os, sys
+with open(os.environ['CLI_LOG'], 'a') as f:
+    f.write(' '.join(sys.argv[1:]) + '\\n')
+if sys.argv[1:3] == ['contract', 'build']:
+    out = sys.argv[sys.argv.index('--out-dir') + 1]
+    os.makedirs(out, exist_ok=True)
+    for name in ('remitpulse_core', 'remitpulse_airdrop', 'remitpulse_nft'):
+        with open(os.path.join(out, name + '.wasm'), 'wb') as f:
+            f.write(b'\\0asm')
+""")
+            cli.chmod(0o755)
+            outputs = []
+            for name in ("first", "second"):
+                out = tmp / name
+                env = {**os.environ, "STELLAR_CLI": str(cli), "CLI_LOG": str(tmp / "calls"),
+                       "BUILD_OUT_DIR": str(out)}
+                result = subprocess.run([str(ROOT / "scripts/build.sh")], cwd=tmp, env=env,
+                                        text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                outputs.append(out)
+            for out in outputs:
+                self.assertTrue(out.is_dir())
+                self.assertEqual(sorted(p.name for p in out.glob("*.wasm")),
+                                 ["remitpulse_airdrop.wasm", "remitpulse_core.wasm",
+                                  "remitpulse_nft.wasm"])
+            calls = (tmp / "calls").read_text().splitlines()
+            self.assertEqual(len(calls), 2)
+            for call, out in zip(calls, outputs):
+                self.assertIn("--out-dir " + str(out), call)
+
+    def test_deployment_requires_no_secret_values(self):
+        # The checklist forbids committing secrets; deployment must not read any
+        # private key material from the environment or the repository.
+        result, calls, _ = self.run_deploy()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(calls)
+        for name in ("SECRET_KEY", "PRIVATE_KEY", "STELLAR_SECRET", "SIGNING_KEY"):
+            self.assertNotIn(name, os.environ.get("DEPLOY_REQUIRED_VARS", ""))
+        deploy_script = (ROOT / "deploy.sh").read_text()
+        for name in ("SECRET_KEY", "PRIVATE_KEY", "STELLAR_SECRET"):
+            self.assertNotIn(name, deploy_script)
+        for path in (ROOT / "deployments").glob("*.env"):
+            self.assertNotIn("SECRET", path.read_text().upper())
+
     def test_unknown_component_names_are_rejected(self):
         for component in ["bogus", "Core", "", "core ", "nft2"]:
             result, calls, records = self.run_deploy(component=component)

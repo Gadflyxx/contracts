@@ -6,7 +6,17 @@ toolchain=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
 : "${toolchain:?Missing channel in rust-toolchain.toml}"
 # An inherited RUSTUP_TOOLCHAIN otherwise overrides rust-toolchain.toml.
 export RUSTUP_TOOLCHAIN="$toolchain"
-"${STELLAR_CLI:-stellar}" contract build
+
+# Optional output directory: pass as the first argument or via BUILD_OUT_DIR.
+# When unset, the CLI default behavior is preserved (make build, deploy.sh).
+out_dir="${1:-${BUILD_OUT_DIR:-}}"
+
+if [ -n "$out_dir" ]; then
+  mkdir -p "$out_dir"
+  "${STELLAR_CLI:-stellar}" contract build --out-dir "$out_dir"
+else
+  "${STELLAR_CLI:-stellar}" contract build
+fi
 
 # Verify the build produced predictably named WASM outputs for the build target.
 # Artifact names and checksums depend on these files existing at this path.
