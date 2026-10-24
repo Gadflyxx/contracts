@@ -17,6 +17,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.120.0
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.88.0
         with:
           targets: wasm32v1-none
           components: rustfmt
@@ -29,7 +31,7 @@ jobs:
       - run: cargo test -p remitpulse-account --locked --features wasm-tests
       - name: Record WASM checksums
         run: sha256sum target/wasm32v1-none/release/remitpulse_*.wasm > target/wasm32v1-none/release/SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: remitpulse-contracts-${{ github.sha }}
           path: |
